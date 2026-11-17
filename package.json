@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js",
-    "alertas": "node gerar-alertas.js",
+    "start": "node src/server/index.js",
+    "alertas": "node src/cli/generate-alerts.js",
     "test": "node --test"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "jsdom": "^26.1.0"
   }
 }

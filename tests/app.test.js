@@ -7,11 +7,15 @@ const { execFile } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
-const caixa = require("../caixa");
-const alertas = require("../alertas");
-const { generate } = require("../gerar-alertas");
-const { createServer } = require("../server");
-const { createLocator } = require("../localizacao");
+const { CAIXA_CSV_URL } = require("../src/config");
+const { CAIXA_HEADER } = require("../src/domain/columns");
+const { findAlert } = require("../src/domain/alert-matcher");
+const { parseCsv } = require("../src/data/caixa-csv-parser");
+const { loadProperties } = require("../src/data/caixa-repository");
+const { parseAlertData } = require("../src/data/alert-source");
+const { generate } = require("../src/cli/generate-alerts");
+const { createServer } = require("../src/server/create-server");
+const { createLocator } = require("../src/data/nominatim-geocoder");
 
 function caixaCsv(rows) {
   return Buffer.from(stringify(rows, { delimiter: ";" }), "latin1");
@@ -34,8 +38,8 @@ const percentages = { ADA: "0", CV: "1e-06", Milicia: "25.2", TCP: "0" };
 test("lê metadados, Windows-1252 e valores CSV entre aspas", () => {
   const row = [" 123 ", "SP", "São Paulo", "Centro", "Rua A; 10", "10.000,00",
     "20.000,00", "50.00", "Sim", "Casa\ncom terreno", "Venda", "https://example.com"];
-  const data = caixaCsv([[], ["Lista", "", "Data de geração:", "13/11/2026"], caixa.COLUMNS, [], row]);
-  const result = caixa.parseCsv(data);
+  const data = caixaCsv([[], ["Lista", "", "Data de geração:", "13/11/2026"], CAIXA_HEADER, [], row]);
+  const result = parseCsv(data);
   assert.equal(result.dataGeracao, "13/11/2026");
   assert.equal(result.imoveis[0][0], "123");
   assert.equal(result.imoveis[0][2], "São Paulo");
@@ -45,23 +49,23 @@ test("lê metadados, Windows-1252 e valores CSV entre aspas", () => {
 
 test("rejeita CSV da Caixa incompleto ou com estrutura inválida", () => {
   for (const rows of [[["Lista"]], [["Lista", "", "", "data"], ["outra coluna"]],
-    [["Lista", "", "", "data"], caixa.COLUMNS, ["123"]]]) {
-    assert.throws(() => caixa.parseCsv(caixaCsv(rows)));
+    [["Lista", "", "", "data"], CAIXA_HEADER, ["123"]]]) {
+    assert.throws(() => parseCsv(caixaCsv(rows)));
   }
 });
 
 test("usa o CSV local existente sem consultar a Caixa", async t => {
-  const data = caixaCsv([["Lista", "", "", "data"], caixa.COLUMNS]);
+  const data = caixaCsv([["Lista", "", "", "data"], CAIXA_HEADER]);
   const directory = await mkdtemp(path.join(os.tmpdir(), "imoveis-local-"));
   const file = path.join(directory, "Lista_imoveis_geral.csv");
   const target = path.join(directory, "lista_imoveis_geral.csv");
   t.mock.method(globalThis, "fetch", () => { throw new Error("Não deve acessar a rede"); });
   try {
     await writeFile(file, data);
-    assert.equal((await caixa.loadProperties(target)).dataGeracao, "data");
+    assert.equal((await loadProperties(target)).dataGeracao, "data");
     assert.deepEqual(await readFile(file), data);
-    await writeFile(file, caixaCsv([["Lista", "", "", "nova data"], caixa.COLUMNS]));
-    assert.equal((await caixa.loadProperties(target)).dataGeracao, "nova data");
+    await writeFile(file, caixaCsv([["Lista", "", "", "nova data"], CAIXA_HEADER]));
+    assert.equal((await loadProperties(target)).dataGeracao, "nova data");
     assert.equal(globalThis.fetch.mock.calls.length, 0);
   } finally {
     await rm(file, { force: true });
@@ -70,7 +74,7 @@ test("usa o CSV local existente sem consultar a Caixa", async t => {
 });
 
 test("baixa uma vez quando ausente, inclusive para consultas simultâneas", async t => {
-  const data = caixaCsv([["Lista", "", "", "data"], caixa.COLUMNS]);
+  const data = caixaCsv([["Lista", "", "", "data"], CAIXA_HEADER]);
   const directory = await mkdtemp(path.join(os.tmpdir(), "imoveis-download-"));
   const file = path.join(directory, "lista_imoveis_geral.csv");
   t.mock.method(globalThis, "fetch", async () => {
@@ -78,12 +82,12 @@ test("baixa uma vez quando ausente, inclusive para consultas simultâneas", asyn
     return new Response(data);
   });
   try {
-    const results = await Promise.all(Array.from({ length: 4 }, () => caixa.loadProperties(file)));
+    const results = await Promise.all(Array.from({ length: 4 }, () => loadProperties(file)));
     assert.ok(results.every(result => result.dataGeracao === "data"));
     assert.equal(globalThis.fetch.mock.calls.length, 1);
-    assert.match(globalThis.fetch.mock.calls[0].arguments[0], new RegExp(`^${caixa.SOURCE_URL.replaceAll(".", "\\.")}\\?\\d+$`));
+    assert.match(globalThis.fetch.mock.calls[0].arguments[0], new RegExp(`^${CAIXA_CSV_URL.replaceAll(".", "\\.")}\\?\\d+$`));
     assert.deepEqual(await readFile(file), data);
-    await caixa.loadProperties(file);
+    await loadProperties(file);
     assert.equal(globalThis.fetch.mock.calls.length, 1);
   } finally {
     await rm(file, { force: true });
@@ -95,7 +99,7 @@ test("processos simultâneos compartilham um único download", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "imoveis-processos-"));
   const file = path.join(directory, "lista_imoveis_geral.csv");
   const counter = path.join(directory, "downloads.txt");
-  const data = caixaCsv([["Lista", "", "", "data"], caixa.COLUMNS]).toString("base64");
+  const data = caixaCsv([["Lista", "", "", "data"], CAIXA_HEADER]).toString("base64");
   const script = `
     const fs = require("node:fs");
     const caixa = require(process.argv[1]);
@@ -108,10 +112,10 @@ test("processos simultâneos compartilham um único download", async () => {
   `;
   const run = promisify(execFile);
   try {
-    const args = ["-e", script, path.join(__dirname, "..", "caixa.js"), file, counter, data];
+    const args = ["-e", script, path.join(__dirname, "..", "src", "data", "caixa-repository.js"), file, counter, data];
     await Promise.all([run(process.execPath, args), run(process.execPath, args)]);
     assert.equal(await readFile(counter, "utf8"), "x");
-    assert.equal((await caixa.loadProperties(file)).dataGeracao, "data");
+    assert.equal((await loadProperties(file)).dataGeracao, "data");
   } finally {
     await rm(file, { force: true });
     await rm(counter, { force: true });
@@ -122,14 +126,14 @@ test("processos simultâneos compartilham um único download", async () => {
 test("preserva o arquivo local criado durante o download", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "imoveis-concorrente-"));
   const file = path.join(directory, "lista_imoveis_geral.csv");
-  const local = caixaCsv([["Lista", "", "", "local"], caixa.COLUMNS]);
-  const downloaded = caixaCsv([["Lista", "", "", "remoto"], caixa.COLUMNS]);
+  const local = caixaCsv([["Lista", "", "", "local"], CAIXA_HEADER]);
+  const downloaded = caixaCsv([["Lista", "", "", "remoto"], CAIXA_HEADER]);
   t.mock.method(globalThis, "fetch", async () => {
     await writeFile(file, local);
     return new Response(downloaded);
   });
   try {
-    assert.equal((await caixa.loadProperties(file)).dataGeracao, "local");
+    assert.equal((await loadProperties(file)).dataGeracao, "local");
     assert.deepEqual(await readFile(file), local);
   } finally {
     await rm(file, { force: true });
@@ -138,15 +142,15 @@ test("preserva o arquivo local criado durante o download", async t => {
 });
 
 test("não salva download inválido e permite nova tentativa", async t => {
-  const data = caixaCsv([["Lista", "", "", "data"], caixa.COLUMNS]);
+  const data = caixaCsv([["Lista", "", "", "data"], CAIXA_HEADER]);
   const directory = await mkdtemp(path.join(os.tmpdir(), "imoveis-invalido-"));
   const file = path.join(directory, "lista_imoveis_geral.csv");
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => new Response(++requests === 1 ? "<html>erro</html>" : data));
   try {
-    await assert.rejects(caixa.loadProperties(file));
+    await assert.rejects(loadProperties(file));
     await assert.rejects(readFile(file), { code: "ENOENT" });
-    assert.equal((await caixa.loadProperties(file)).dataGeracao, "data");
+    assert.equal((await loadProperties(file)).dataGeracao, "data");
     assert.equal(requests, 2);
   } finally {
     await rm(file, { force: true });
@@ -160,7 +164,7 @@ test("CSV local inválido não é substituído nem provoca download", async t =>
   t.mock.method(globalThis, "fetch", () => { throw new Error("Não deve acessar a rede"); });
   try {
     await writeFile(file, "inválido");
-    await assert.rejects(caixa.loadProperties(file));
+    await assert.rejects(loadProperties(file));
     assert.equal(await readFile(file, "utf8"), "inválido");
     assert.equal(globalThis.fetch.mock.calls.length, 0);
   } finally {
@@ -174,7 +178,7 @@ test("sincronização local não baixa CSV ausente", async t => {
   const file = path.join(directory, "lista_imoveis_geral.csv");
   t.mock.method(globalThis, "fetch", () => { throw new Error("Não deve acessar a rede"); });
   try {
-    await assert.rejects(caixa.loadProperties(file, { downloadIfMissing: false }), /CSV local não encontrado/);
+    await assert.rejects(loadProperties(file, { downloadIfMissing: false }), /CSV local não encontrado/);
     assert.equal(globalThis.fetch.mock.calls.length, 0);
   } finally {
     await rmdir(directory);
@@ -182,28 +186,28 @@ test("sincronização local não baixa CSV ausente", async t => {
 });
 
 test("cruza apenas bairro correspondente da cidade do Rio", () => {
-  const districts = alertas.parseAlertData(historicCsv(percentages));
-  const match = alertas.findAlert(property("RJ", "RIO DE JANEIRO", " São  Cristóvão "), districts);
+  const districts = parseAlertData(historicCsv(percentages));
+  const match = findAlert(property("RJ", "RIO DE JANEIRO", " São  Cristóvão "), districts);
   assert.equal(match.nome, "São Cristóvão");
   assert.deepEqual(match.grupos, [
     { grupo: "CV", percentual: "0.000001" }, { grupo: "Milicia", percentual: "25.2" },
   ]);
   for (const row of [property("SP"), property("RJ", "NITEROI"), property("RJ", "RIO DE JANEIRO", "SAO CRISTOVAO II")]) {
-    assert.equal(alertas.findAlert(row, districts), null);
+    assert.equal(findAlert(row, districts), null);
   }
-  const zero = alertas.parseAlertData(historicCsv({ ADA: "0", CV: "0", Milicia: "0", TCP: "0" }));
-  assert.equal(alertas.findAlert(property(), zero), null);
+  const zero = parseAlertData(historicCsv({ ADA: "0", CV: "0", Milicia: "0", TCP: "0" }));
+  assert.equal(findAlert(property(), zero), null);
 });
 
 test("rejeita base histórica incompleta ou percentuais inválidos", () => {
   for (const values of [{ ADA: "0" }, { ...percentages, ADA: "NaN" }, { ...percentages, ADA: "101" },
     { ...percentages, ADA: "" }]) {
-    assert.throws(() => alertas.parseAlertData(historicCsv(values)));
+    assert.throws(() => parseAlertData(historicCsv(values)));
   }
 });
 
 test("CSV contém somente correspondências, aviso e proteção contra fórmulas", async () => {
-  const districts = alertas.parseAlertData(historicCsv(percentages));
+  const districts = parseAlertData(historicCsv(percentages));
   const match = property();
   match[4] = "=formula";
   const properties = { dataGeracao: "13/11/2026", imoveis: [match, property("RJ", "NITEROI")] };
@@ -244,7 +248,7 @@ test("API mantém imóveis e informa indisponibilidade da base de alertas", asyn
 
 test("servidor disponibiliza página e API com alertas correspondentes", async () => {
   const properties = { dataGeracao: "data", imoveis: [property(), property("SP")] };
-  const districts = alertas.parseAlertData(historicCsv(percentages));
+  const districts = parseAlertData(historicCsv(percentages));
   const server = createServer({
     loadProperties: async () => properties,
     fetchAlertData: async () => districts,
