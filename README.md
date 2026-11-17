@@ -1,7 +1,7 @@
 # Imóveis Caixa
 
 Aplicação local para consultar a lista de imóveis disponibilizada pela Caixa. A
-aplicação lê `lista_imoveis_geral.csv` no diretório do projeto sempre que a
+aplicação lê `data/lista_imoveis_geral.csv` sempre que a
 página é aberta ou recarregada. Se ele não existir, a lista é baixada uma vez da
 Caixa, validada e salva nesse local. Um arquivo já existente não é substituído ou
 atualizado automaticamente. Também é reconhecido o nome `Lista_imoveis_geral.csv`.
@@ -26,7 +26,7 @@ Para atualizar a lista, substitua manualmente o CSV local por uma versão válid
 ou remova-o para permitir um novo download. Downloads simultâneos usam um
 arquivo de bloqueio temporário; se o processo for interrompido durante o
 download e uma consulta indicar que o bloqueio permaneceu, confirme que não há
-outro download em andamento antes de remover `lista_imoveis_geral.csv.lock`.
+outro download em andamento antes de remover `data/lista_imoveis_geral.csv.lock`.
 O botão **Sincronizar** apenas relê o CSV local e não baixa a lista da Caixa
 se o arquivo estiver ausente.
 
@@ -102,7 +102,7 @@ base derivada utilizada, que foi fixada em uma versão para permitir reproduçã
 O [estudo mais recente do GENI/UFF e Fogo Cruzado](https://geni.uff.br/2025/12/04/atualizacao-do-mapa-historico-dos-grupos-armados-2/)
 usa dados de 2024, mas seus polígonos não estão integrados à aplicação.
 
-Para gerar ou atualizar o arquivo `lista_alertas_historicos.csv` com a lista
+Para gerar ou atualizar o arquivo `data/lista_alertas_historicos.csv` com a lista
 local da Caixa:
 
 ```powershell
@@ -113,6 +113,23 @@ O arquivo é um retrato da data indicada nele e não é atualizado ao abrir a
 página. Fonte dos indicadores: [base derivada por bairro](https://github.com/olucasandre/mapa-faccoes-rio-bairros),
 elaborada a partir do mapa do Fogo Cruzado e da malha do IBGE. Os dados mantêm
 os termos das respectivas fontes originais.
+
+## Estrutura do código
+
+Todo o código fica em `src/`, separado por camada:
+
+| Pasta | Responsabilidade |
+| --- | --- |
+| `src/web/index.html`, `src/web/styles/` | Camada HTML e CSS (apresentação estática) |
+| `src/web/js/domain/` | Lógica pura do navegador: filtros, formatação, regras do imóvel |
+| `src/web/js/data/` | Acesso a dados no navegador: API do servidor e filtros salvos |
+| `src/web/js/ui/` | Componentes que desenham e ligam eventos ao DOM |
+| `src/web/js/main.js`, `store.js` | Composição dos módulos e estado observável |
+| `src/domain/` | Regras do servidor: colunas do CSV, correspondência e relatório de alertas |
+| `src/data/` | Fontes de dados: CSV da Caixa, base de alertas e geocodificador |
+| `src/server/` | Servidor HTTP, rotas da API e arquivos estáticos |
+| `src/cli/` | Comandos (`npm run alertas`) |
+| `data/` | CSVs locais (lista da Caixa e relatório de alertas) |
 
 ## Testes
 

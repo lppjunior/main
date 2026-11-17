@@ -3,6 +3,18 @@ const assert = require("node:assert/strict");
 const { readFile } = require("node:fs/promises");
 const path = require("node:path");
 const { JSDOM } = require("jsdom");
+const { build } = require("esbuild");
+
+const WEB_ROOT = path.join(__dirname, "..", "src", "web");
+
+// jsdom não executa módulos ES; o código do navegador é empacotado em um único script.
+async function bundleApp() {
+  const result = await build({
+    entryPoints: [path.join(WEB_ROOT, "js", "main.js")],
+    bundle: true, format: "iife", write: false, logLevel: "silent",
+  });
+  return result.outputFiles[0].text;
+}
 
 function row(id, uf, city, district, description, discount, financing = "Sim") {
   return [String(id), uf, city, district, `Rua ${id}`, "100.000,00", "200.000,00", String(discount),
@@ -10,8 +22,8 @@ function row(id, uf, city, district, description, discount, financing = "Sim") {
 }
 
 async function openPage(data, responseForUrl = () => ({ ok: true, json: async () => data })) {
-  const html = await readFile(path.join(__dirname, "..", "index.html"), "utf8");
-  const script = await readFile(path.join(__dirname, "..", "app.js"), "utf8");
+  const html = await readFile(path.join(WEB_ROOT, "index.html"), "utf8");
+  const script = await bundleApp();
   const dom = new JSDOM(html, { url: "http://localhost:8000", runScripts: "outside-only" });
   const calls = [];
   dom.window.fetch = async url => { calls.push(url); return responseForUrl(url); };
