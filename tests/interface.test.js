@@ -32,6 +32,14 @@ function change(dom, control, value) {
   control.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
 }
 
+function toggleLocation(document, filter, value) {
+  const search = document.querySelector(`#${filter}-filter input[type="search"]`);
+  const checkbox = [...document.querySelectorAll(`#${filter}-filter .location-option`)]
+    .find(label => label.textContent === value)?.querySelector("input");
+  assert.ok(checkbox, `Opção ${value} não encontrada em ${filter}; busca: ${search.value}`);
+  checkbox.click();
+}
+
 test("ranking, alertas, diálogo e paginação usam os imóveis correspondentes", async () => {
   const properties = Array.from({ length: 51 }, (_, index) =>
     row(index + 1, "RJ", "RIO DE JANEIRO", "CENTRO", "Casa, 100.00 de área privativa, 2 qto(s)", 99 - index));
@@ -98,9 +106,9 @@ test("filtros, visualização e filtros salvos refletem os dados", async () => {
   const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: alerts });
   try {
     const fields = document.querySelector("#filters").elements;
-    change(dom, fields.uf, "RJ");
+    toggleLocation(document, "uf", "RJ");
     assert.equal(document.querySelectorAll("tbody tr").length, 2);
-    change(dom, fields.city, "RIO DE JANEIRO");
+    toggleLocation(document, "city", "RJ - RIO DE JANEIRO");
     change(dom, fields.minRooms, "3");
     assert.equal(document.querySelector("tbody tr td").textContent, "1");
     change(dom, fields.hideAlerts, true);
@@ -113,11 +121,158 @@ test("filtros, visualização e filtros salvos refletem os dados", async () => {
     assert.equal(document.querySelectorAll("tbody tr").length, 3);
     change(dom, document.querySelector("#saved-filters"), "Rio");
     assert.equal(document.querySelectorAll("tbody tr").length, 1);
-    assert.equal(fields.city.value, "RIO DE JANEIRO");
+    assert.equal(document.querySelector("#city-summary").textContent, "RJ - RIO DE JANEIRO");
     document.querySelector("#grid-view").click();
     assert.equal(document.querySelectorAll("#result-cards .property-card").length, 1);
     assert.equal(document.querySelector("#grid-view").getAttribute("aria-pressed"), "true");
     assert.ok(document.querySelector("#result-cards .property-card").classList.contains("has-alert"));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("seleção múltipla combina valores e atualiza cidades e bairros disponíveis", async () => {
+  const properties = [
+    row(1, "RJ", "RIO DE JANEIRO", "CENTRO", "Casa", 40),
+    row(2, "RJ", "NITEROI", "ICARAI", "Casa", 30),
+    row(3, "SP", "SAO PAULO", "CENTRO", "Casa", 20),
+    row(4, "SP", "SANTOS", "GONZAGA", "Casa", 10),
+    row(5, "MG", "BELO HORIZONTE", "CENTRO", "Casa", 5),
+  ];
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: properties.map(() => null) });
+  try {
+    toggleLocation(document, "uf", "RJ");
+    toggleLocation(document, "uf", "SP");
+    toggleLocation(document, "city", "RJ - RIO DE JANEIRO");
+    toggleLocation(document, "city", "SP - SAO PAULO");
+    toggleLocation(document, "district", "RJ - RIO DE JANEIRO - CENTRO");
+    toggleLocation(document, "district", "SP - SAO PAULO - CENTRO");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "3"]);
+    assert.equal(document.querySelector("#uf-summary").textContent, "2 selecionados");
+    assert.equal(document.querySelector("#city-summary").textContent, "2 selecionados");
+    toggleLocation(document, "uf", "RJ");
+    assert.equal(document.querySelector("#city-summary").textContent, "SP - SAO PAULO");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["3"]);
+    document.querySelector("#clear-filters").click();
+    assert.equal(document.querySelectorAll("tbody tr").length, 5);
+    assert.equal(document.querySelector("#district-summary").textContent, "Todos");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("busca e seleção de vários bairros persistem em filtros salvos", async () => {
+  const properties = [
+    row(1, "RJ", "RIO", "CENTRO", "Casa", 30),
+    row(2, "RJ", "RIO", "COPACABANA", "Casa", 20),
+    row(3, "RJ", "RIO", "TIJUCA", "Casa", 10),
+  ];
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: [null, null, null] });
+  try {
+    toggleLocation(document, "uf", "RJ");
+    toggleLocation(document, "city", "RJ - RIO");
+    const search = document.querySelector('#district-filter input[type="search"]');
+    change(dom, search, "copa");
+    toggleLocation(document, "district", "RJ - RIO - COPACABANA");
+    change(dom, search, "centro");
+    toggleLocation(document, "district", "RJ - RIO - CENTRO");
+    assert.equal(document.querySelectorAll("tbody tr").length, 2);
+    document.querySelector("#filter-name").value = "Vários bairros";
+    document.querySelector("#save-filter").click();
+    const saved = JSON.parse(dom.window.localStorage.getItem("imoveis-caixa-filtros"))["Vários bairros"];
+    assert.deepEqual(saved.districts, [JSON.stringify(["RJ", "RIO", "COPACABANA"]), JSON.stringify(["RJ", "RIO", "CENTRO"])]);
+    document.querySelector("#clear-filters").click();
+    change(dom, document.querySelector("#saved-filters"), "Vários bairros");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "2"]);
+    assert.equal(document.querySelector("#district-summary").textContent, "2 selecionados");
+    document.querySelector("#district-filter .location-clear").click();
+    assert.equal(document.querySelectorAll("tbody tr").length, 3);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("cidades e bairros homônimos são selecionados por UF e cidade", async () => {
+  const properties = [
+    row(1, "RJ", "BOM JESUS", "CENTRO", "Casa", 40),
+    row(2, "SP", "BOM JESUS", "CENTRO", "Casa", 30),
+    row(3, "RJ", "OUTRA CIDADE", "CENTRO", "Casa", 20),
+  ];
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: [null, null, null] });
+  try {
+    toggleLocation(document, "city", "RJ - BOM JESUS");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1"]);
+    toggleLocation(document, "city", "SP - BOM JESUS");
+    toggleLocation(document, "district", "RJ - BOM JESUS - CENTRO");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1"]);
+    toggleLocation(document, "district", "SP - BOM JESUS - CENTRO");
+    document.querySelector("#filter-name").value = "Homônimos";
+    document.querySelector("#save-filter").click();
+    document.querySelector("#clear-filters").click();
+    change(dom, document.querySelector("#saved-filters"), "Homônimos");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "2"]);
+    toggleLocation(document, "city", "RJ - BOM JESUS");
+    assert.equal(document.querySelector("#district-summary").textContent, "SP - BOM JESUS - CENTRO");
+    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["2"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("filtros salvos antigos preservam UF, cidade e busca parcial por bairro", async () => {
+  const properties = [
+    row(1, "RJ", "RIO", "JARDIM SUL", "Casa", 30),
+    row(2, "RJ", "RIO", "JARDIM NORTE", "Casa", 20),
+    row(3, "SP", "SAO PAULO", "JARDIM SUL", "Casa", 10),
+  ];
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: [null, null, null] });
+  try {
+    dom.window.localStorage.setItem("imoveis-caixa-filtros", JSON.stringify({ Antigo: { uf: "RJ", city: "RIO", district: "jardim" } }));
+    document.querySelector("#filter-name").value = "novo";
+    document.querySelector("#save-filter").click();
+    change(dom, document.querySelector("#saved-filters"), "Antigo");
+    assert.equal(document.querySelector("#uf-summary").textContent, "RJ");
+    assert.equal(document.querySelector("#city-summary").textContent, "RJ - RIO");
+    assert.equal(document.querySelector('[name="district"]').value, "jardim");
+    assert.equal(document.querySelectorAll("tbody tr").length, 2);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("menus de localização fecham com Escape ou clique fora", async () => {
+  const properties = [row(1, "RJ", "RIO", "CENTRO", "Casa", 30)];
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: [null] });
+  try {
+    const filter = document.querySelector("#uf-filter");
+    const search = filter.querySelector("input[type=search]");
+    filter.open = true;
+    search.focus();
+    search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    assert.equal(filter.open, false);
+    assert.equal(document.activeElement, filter.querySelector("summary"));
+    filter.open = true;
+    document.querySelector("#results-title").click();
+    assert.equal(filter.open, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("busca permite encontrar bairros além das primeiras opções sem alterar a seleção", async () => {
+  const properties = Array.from({ length: 105 }, (_, index) =>
+    row(index + 1, "SP", "SAO PAULO", `BAIRRO ${String(index + 1).padStart(3, "0")}`, "Casa", 1));
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: properties.map(() => null) });
+  try {
+    toggleLocation(document, "district", "SP - SAO PAULO - BAIRRO 001");
+    const search = document.querySelector('#district-filter input[type="search"]');
+    change(dom, search, "105");
+    assert.equal(document.querySelector("#result-count").textContent, "(1 imóveis)");
+    toggleLocation(document, "district", "SP - SAO PAULO - BAIRRO 105");
+    assert.equal(document.querySelector("#result-count").textContent, "(2 imóveis)");
+    change(dom, search, "");
+    assert.equal(document.querySelector("#district-summary").textContent, "2 selecionados");
+    assert.match(document.querySelector("#district-filter .location-count").textContent, /Digite para refinar/);
   } finally {
     dom.window.close();
   }

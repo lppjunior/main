@@ -36,9 +36,37 @@
       <form id="filters" novalidate>
         <div class="filter-grid">
           <label class="search-field">Busca livre<input name="search" placeholder="Endereço, descrição, nº..."></label>
-          <label>UF<select name="uf"><option value="">Todos</option></select></label>
-          <label>Cidade<select name="city"><option value="">Todas</option></select></label>
-          <label>Bairro<input name="district" placeholder="contém..."></label>
+          <div class="location-field"><span id="uf-label">UF</span>
+            <details class="location-filter" id="uf-filter">
+              <summary aria-labelledby="uf-label uf-summary"><span id="uf-summary">Todos</span></summary>
+              <div class="location-menu">
+                <input type="search" aria-label="Buscar UF" placeholder="Buscar UF...">
+                <button type="button" class="location-clear">Limpar seleção</button>
+                <div class="location-options"></div><p class="location-count" role="status"></p>
+              </div>
+            </details>
+          </div>
+          <div class="location-field"><span id="city-label">Cidade</span>
+            <details class="location-filter" id="city-filter">
+              <summary aria-labelledby="city-label city-summary"><span id="city-summary">Todas</span></summary>
+              <div class="location-menu">
+                <input type="search" aria-label="Buscar cidade" placeholder="Buscar cidade...">
+                <button type="button" class="location-clear">Limpar seleção</button>
+                <div class="location-options"></div><p class="location-count" role="status"></p>
+              </div>
+            </details>
+          </div>
+          <div class="location-field"><span id="district-label">Bairro</span>
+            <details class="location-filter" id="district-filter">
+              <summary aria-labelledby="district-label district-summary"><span id="district-summary">Todos</span></summary>
+              <div class="location-menu">
+                <input type="search" aria-label="Buscar bairro" placeholder="Buscar bairro...">
+                <button type="button" class="location-clear">Limpar seleção</button>
+                <div class="location-options"></div><p class="location-count" role="status"></p>
+              </div>
+            </details>
+          </div>
+          <label>Bairro contém<input name="district" placeholder="contém..."></label>
           <label>Tipo<select name="type"><option value="">Todos</option></select></label>
           <label>Modalidade<select name="modality"><option value="">Todas</option></select></label>
           <label>Preço mín. (R$)<input name="minPrice" type="number" min="0" step="0.01"></label>

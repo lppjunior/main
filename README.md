@@ -38,6 +38,15 @@ são extraídos da descrição fornecida pela Caixa; quando não informados, nã
 estimados. A área exibida usa a área privativa, total ou do terreno, nessa ordem.
 Filtros nomeados são salvos no navegador.
 
+Nos filtros de UF, cidade e bairro, selecione uma ou várias opções. Os valores
+selecionados no mesmo filtro são combinados com “ou”; filtros diferentes são
+combinados com “e”. Cidades e bairros disponíveis dependem das UFs e cidades
+escolhidas; cada cidade é identificada pela UF e cada bairro pela UF e cidade,
+permitindo selecionar nomes iguais em localidades diferentes separadamente.
+Seleções que deixam de estar disponíveis são removidas. Use a busca
+em cada menu para encontrar opções, ou o campo **Bairro contém** para buscar
+parte do nome. Esse campo também é combinado com os bairros selecionados.
+
 O Top 20 apresenta os imóveis com maiores descontos dentre os resultados
 filtrados; não é uma avaliação de custo-benefício ou recomendação de compra.
 

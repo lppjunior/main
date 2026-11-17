@@ -37,7 +37,13 @@ const propertyFieldNames = ["Nº do imóvel", "UF", "Cidade", "Bairro", "Endere�
   "Valor de avaliação", "Desconto", "Financiamento", "Descrição", "Modalidade de venda"];
 const pageSize = 50;
 const storageKey = "imoveis-caixa-filtros";
-const fieldNames = ["search", "uf", "city", "district", "type", "modality", "minPrice", "maxPrice", "minDiscount", "minRooms", "financing", "hideAlerts"];
+const fieldNames = ["search", "district", "type", "modality", "minPrice", "maxPrice", "minDiscount", "minRooms", "financing", "hideAlerts"];
+const locationFilters = Object.fromEntries(["uf", "city", "district"].map(key => {
+  const root = document.querySelector(`#${key}-filter`);
+  return [key, { root, search: root.querySelector("input[type=search]"), list: root.querySelector(".location-options"),
+    count: root.querySelector(".location-count"), summary: root.querySelector("summary span"),
+    placeholder: key === "city" ? "Todas" : "Todos", selected: new Set(), values: [] }];
+}));
 let properties = [];
 let filtered = [];
 let page = 0;
@@ -86,14 +92,58 @@ function setOptions(select, values, placeholder) {
   select.value = options.some(option => option.value === selected) ? selected : "";
 }
 
-function updateCities() {
-  const cities = properties.filter(property => !fields.uf.value || property.row[1] === fields.uf.value).map(property => property.row[2]);
-  setOptions(fields.city, cities, "Todas");
+function renderLocationFilter(filter) {
+  const selected = [...filter.selected];
+  filter.summary.textContent = selected.length === 0 ? filter.placeholder
+    : selected.length === 1 ? filter.values.find(option => option.value === selected[0]).label : `${selected.length} selecionados`;
+  const term = normalize(filter.search.value);
+  const matches = filter.values.filter(option => normalize(option.label).includes(term));
+  matches.sort((a, b) => Number(filter.selected.has(b.value)) - Number(filter.selected.has(a.value)) || a.label.localeCompare(b.label, "pt-BR"));
+  const fragment = document.createDocumentFragment();
+  for (const option of matches.slice(0, 100)) {
+    const label = document.createElement("label");
+    label.className = "location-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = option.value;
+    checkbox.checked = filter.selected.has(option.value);
+    label.append(checkbox, document.createTextNode(option.label));
+    fragment.append(label);
+  }
+  filter.list.replaceChildren(fragment);
+  filter.count.textContent = matches.length > 100
+    ? `Mostrando 100 de ${matches.length} opções. Digite para refinar.`
+    : matches.length ? "" : "Nenhuma opção encontrada.";
+}
+
+function updateLocationOptions() {
+  const uf = locationFilters.uf;
+  const city = locationFilters.city;
+  const district = locationFilters.district;
+  function setValues(filter, rows, end) {
+    const options = new Map();
+    for (const row of rows) {
+      const parts = row.slice(1, end + 1);
+      if (parts.some(part => !part)) continue;
+      const value = end === 1 ? parts[0] : JSON.stringify(parts);
+      options.set(value, { value, label: parts.join(" - "), legacy: parts.at(-1) });
+    }
+    filter.values = [...options.values()];
+    const available = new Set(options.keys());
+    for (const selected of filter.selected) {
+      if (!available.has(selected)) filter.selected.delete(selected);
+    }
+    renderLocationFilter(filter);
+  }
+  setValues(uf, properties.map(property => property.row), 1);
+  const stateMatches = properties.filter(property => !uf.selected.size || uf.selected.has(property.row[1]));
+  setValues(city, stateMatches.map(property => property.row), 2);
+  const cityMatches = stateMatches.filter(property => !city.selected.size || city.selected.has(JSON.stringify(property.row.slice(1, 3))));
+  setValues(district, cityMatches.map(property => property.row), 3);
 }
 
 function updateOptions() {
-  setOptions(fields.uf, properties.map(property => property.row[1]), "Todos");
-  updateCities();
+  updateLocationOptions();
   setOptions(fields.type, properties.map(property => property.type), "Todos");
   setOptions(fields.modality, properties.map(property => property.row[10]), "Todas");
 }
@@ -107,6 +157,7 @@ function applyFilters() {
   filterMessage.textContent = "";
   const search = normalize(fields.search.value);
   const district = normalize(fields.district.value);
+  const { uf, city, district: districts } = locationFilters;
   const minPrice = fields.minPrice.value === "" ? null : Number(fields.minPrice.value);
   const maxPrice = fields.maxPrice.value === "" ? null : Number(fields.maxPrice.value);
   const minDiscount = fields.minDiscount.value === "" ? null : Number(fields.minDiscount.value);
@@ -114,8 +165,9 @@ function applyFilters() {
   filtered = properties.filter(property => {
     const row = property.row;
     return (!search || property.search.includes(search)) &&
-      (!fields.uf.value || row[1] === fields.uf.value) &&
-      (!fields.city.value || row[2] === fields.city.value) &&
+      (!uf.selected.size || uf.selected.has(row[1])) &&
+      (!city.selected.size || city.selected.has(JSON.stringify(row.slice(1, 3)))) &&
+      (!districts.selected.size || districts.selected.has(JSON.stringify(row.slice(1, 4)))) &&
       (!district || normalize(row[3]).includes(district)) &&
       (!fields.type.value || property.type === fields.type.value) &&
       (!fields.modality.value || row[10] === fields.modality.value) &&
@@ -391,19 +443,62 @@ async function loadProperties(localOnly = false) {
 
 filters.addEventListener("submit", event => event.preventDefault());
 filters.addEventListener("input", event => {
+  if (event.target.closest(".location-filter")) return;
   if (event.target.tagName === "SELECT" || event.target.type === "checkbox") return;
   applyFilters();
 });
 filters.addEventListener("change", event => {
+  if (event.target.closest(".location-filter")) return;
   if (event.target.tagName !== "SELECT" && event.target.type !== "checkbox") return;
-  if (event.target === fields.uf) updateCities();
   applyFilters();
+});
+for (const filter of Object.values(locationFilters)) {
+  filter.root.addEventListener("toggle", () => {
+    if (filter.root.open) {
+      for (const other of Object.values(locationFilters)) {
+        if (other !== filter) other.root.open = false;
+      }
+    }
+  });
+  filter.search.addEventListener("input", () => renderLocationFilter(filter));
+  filter.list.addEventListener("change", event => {
+    const checkbox = event.target;
+    if (checkbox.checked) filter.selected.add(checkbox.value);
+    else filter.selected.delete(checkbox.value);
+    updateLocationOptions();
+    const replacement = [...filter.list.querySelectorAll("input")].find(input => input.value === checkbox.value);
+    replacement?.focus();
+    applyFilters();
+  });
+  filter.root.querySelector(".location-clear").addEventListener("click", () => {
+    filter.selected.clear();
+    updateLocationOptions();
+    applyFilters();
+  });
+}
+document.addEventListener("click", event => {
+  if (!event.target.closest(".location-filter")) {
+    for (const filter of Object.values(locationFilters)) filter.root.open = false;
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  const filter = Object.values(locationFilters).find(item => item.root.open && item.root.contains(event.target));
+  if (filter) {
+    event.preventDefault();
+    filter.root.open = false;
+    filter.root.querySelector("summary").focus();
+  }
 });
 document.querySelector("#clear-filters").addEventListener("click", () => {
   filters.reset();
+  for (const filter of Object.values(locationFilters)) {
+    filter.selected.clear();
+    filter.root.open = false;
+  }
   filterName.value = "";
   savedFilters.value = "";
-  updateCities();
+  updateLocationOptions();
   applyFilters();
 });
 document.querySelector("#save-filter").addEventListener("click", () => {
@@ -420,7 +515,12 @@ document.querySelector("#save-filter").addEventListener("click", () => {
   try {
     const saved = readSavedFilters();
     Object.defineProperty(saved, name, {
-      value: Object.fromEntries(fieldNames.map(key => [key, fields[key].type === "checkbox" ? fields[key].checked : fields[key].value])),
+      value: {
+        ...Object.fromEntries(fieldNames.map(key => [key, fields[key].type === "checkbox" ? fields[key].checked : fields[key].value])),
+        uf: [...locationFilters.uf.selected],
+        city: [...locationFilters.city.selected],
+        districts: [...locationFilters.district.selected],
+      },
       enumerable: true, configurable: true, writable: true,
     });
     localStorage.setItem(storageKey, JSON.stringify(saved));
@@ -437,13 +537,22 @@ savedFilters.addEventListener("change", () => {
     const saved = readSavedFilters()[savedFilters.value];
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Filtro salvo inválido");
     filters.reset();
+    for (const filter of Object.values(locationFilters)) filter.selected.clear();
     for (const key of fieldNames) {
-      if (key === "city") continue;
       if (fields[key].type === "checkbox") fields[key].checked = Boolean(saved[key]) && !fields[key].disabled;
       else if (typeof saved[key] === "string") fields[key].value = saved[key];
     }
-    updateCities();
-    if (typeof saved.city === "string") fields.city.value = saved.city;
+    updateLocationOptions();
+    for (const [key, savedKey] of [["uf", "uf"], ["city", "city"], ["district", "districts"]]) {
+      const values = Array.isArray(saved[savedKey]) ? saved[savedKey] : [saved[savedKey]];
+      for (const value of values) {
+        if (typeof value !== "string" || !value) continue;
+        for (const option of locationFilters[key].values) {
+          if (option.value === value || option.legacy === value) locationFilters[key].selected.add(option.value);
+        }
+      }
+      updateLocationOptions();
+    }
     filterName.value = savedFilters.value;
     applyFilters();
   } catch (error) {
