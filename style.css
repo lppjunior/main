@@ -44,6 +44,8 @@ input[type="checkbox"] { accent-color: #005ca9; width: 1rem; height: 1rem; flex:
 .carousel-button { flex: none; width: 2rem; height: 2rem; border: 1px solid #d2e0ed; border-radius: 50%; background: #f7fafc; color: #28415c; font-size: 1.2rem; }
 .ranking-cards { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; min-width: 0; }
 .property-card { display: flex; flex-direction: column; gap: .4rem; min-width: 0; background: white; border: 1px solid #d8e3ee; border-radius: .8rem; padding: .9rem; }
+.property-card, tbody tr { cursor: pointer; }
+.detail-button { padding: 0; border: 0; background: transparent; color: #005ca9; text-decoration: underline; font-weight: 600; }
 .property-card.has-alert { background: #fff0f0; border-color: #efc8c8; }
 .card-heading { display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
 .card-heading > div { display: flex; gap: .3rem; }
@@ -80,6 +82,19 @@ dialog { width: min(32rem, 90vw); border: 1px solid #dfe7ed; border-radius: .8re
 dialog::backdrop { background: rgb(0 0 0 / 50%); }
 dialog p { line-height: 1.5; margin-top: .8rem; }
 dialog form { display: flex; justify-content: flex-end; margin-top: 1rem; }
+#property-dialog { width: min(60rem, 94vw); max-height: 90vh; }
+.property-dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.property-dialog-heading form { margin: 0; }
+.property-details { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: 1.2rem; margin-top: 1rem; }
+.photo-placeholder { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 1.5rem; min-height: 12rem; border-radius: .6rem; background: #edf3f8; text-align: center; }
+.photo-placeholder p { margin: .5rem 0; }
+#property-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem .8rem; margin: 0; }
+#property-fields dt { font-weight: 700; }
+#property-fields dd { margin: 0; overflow-wrap: anywhere; }
+.property-map-section { margin-top: 1.25rem; }
+.property-map-section h3 { margin: 0; }
+#map-status { margin: .5rem 0; }
+#property-map { height: 20rem; width: 100%; border-radius: .6rem; z-index: 0; }
 @media (max-width: 800px) {
   .filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ranking-cards, .result-cards:not([hidden]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -91,4 +106,6 @@ dialog form { display: flex; justify-content: flex-end; margin-top: 1rem; }
   .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ranking-cards, .result-cards:not([hidden]) { grid-template-columns: 1fr; }
   .carousel { gap: .35rem; }
+  .property-details { grid-template-columns: 1fr; }
+  #property-fields { grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr); }
 }

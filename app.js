@@ -26,6 +26,15 @@ const sync = document.querySelector("#sync");
 const alertDialog = document.querySelector("#alert-dialog");
 const alertTitle = document.querySelector("#alert-title");
 const alertDescription = document.querySelector("#alert-description");
+const propertyDialog = document.querySelector("#property-dialog");
+const propertyTitle = document.querySelector("#property-title");
+const propertyFields = document.querySelector("#property-fields");
+const propertyLink = document.querySelector("#property-link");
+const propertyAlert = document.querySelector("#property-alert");
+const mapElement = document.querySelector("#property-map");
+const mapStatus = document.querySelector("#map-status");
+const propertyFieldNames = ["Nº do imóvel", "UF", "Cidade", "Bairro", "Endereço", "Preço",
+  "Valor de avaliação", "Desconto", "Financiamento", "Descrição", "Modalidade de venda"];
 const pageSize = 50;
 const storageKey = "imoveis-caixa-filtros";
 const fieldNames = ["search", "uf", "city", "district", "type", "modality", "minPrice", "maxPrice", "minDiscount", "minRooms", "financing", "hideAlerts"];
@@ -36,6 +45,8 @@ let rankingPage = 0;
 let view = "list";
 let alertsAvailable = false;
 let lastLoadLocalOnly = false;
+let propertyMap = null;
+let mapRequest = 0;
 
 function normalize(value) {
   return value.normalize("NFKD").replace(/\p{M}/gu, "").toUpperCase().trim();
@@ -128,7 +139,7 @@ function addText(parent, tag, text, className) {
   return element;
 }
 
-function detailLink(property) {
+function caixaLink(property) {
   const link = document.createElement("a");
   try {
     const url = new URL(property.row[11]);
@@ -136,7 +147,7 @@ function detailLink(property) {
       link.href = url.href;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.textContent = "Ver imóvel";
+      link.textContent = "Ver anúncio e fotos na Caixa";
       return link;
     }
   } catch (error) {
@@ -147,6 +158,83 @@ function detailLink(property) {
   return unavailable;
 }
 
+function alertText(property) {
+  const groups = property.alert.grupos.map(group => `${group.grupo}: ${group.percentual.replace(".", ",")}%`).join("; ");
+  return `No bairro ${property.alert.nome}, parte da área foi mapeada como controlada por grupos armados em 2022 (${groups} da área total do bairro). O alerta não confirma risco no endereço nem a situação atual.`;
+}
+
+async function openProperty(property) {
+  const requestId = ++mapRequest;
+  if (propertyMap) {
+    propertyMap.remove();
+    propertyMap = null;
+  }
+  propertyTitle.textContent = `Imóvel ${property.row[0]}`;
+  propertyFields.replaceChildren();
+  propertyFieldNames.forEach((name, index) => {
+    addText(propertyFields, "dt", name);
+    const value = property.row[index];
+    const formatted = value && (index === 5 || index === 6) ? `R$ ${value}`
+      : value && index === 7 ? `${value.replace(".", ",")}%` : value;
+    addText(propertyFields, "dd", formatted || "Não informado");
+  });
+  propertyLink.replaceChildren(caixaLink(property));
+  propertyAlert.replaceChildren();
+  if (property.alert) addText(propertyAlert, "p", alertText(property), "notice");
+  mapElement.hidden = true;
+  mapStatus.textContent = "Buscando localização aproximada...";
+  propertyDialog.showModal();
+  try {
+    const response = await fetch(`/api/imoveis/${encodeURIComponent(property.row[0])}/localizacao`);
+    if (!response.ok) throw new Error(`Localização indisponível (HTTP ${response.status})`);
+    const { localizacao } = await response.json();
+    if (requestId !== mapRequest || !propertyDialog.open) return;
+    if (!localizacao) {
+      mapStatus.textContent = "Localização não encontrada. Confira o endereço no anúncio da Caixa.";
+      return;
+    }
+    if (!window.L) throw new Error("Biblioteca do mapa indisponível");
+    mapElement.hidden = false;
+    propertyMap = L.map(mapElement).setView([localizacao.lat, localizacao.lon], 16);
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    });
+    tiles.on("tileerror", () => {
+      if (requestId === mapRequest) mapStatus.textContent = "Não foi possível carregar parte do mapa. Confira o endereço no anúncio da Caixa.";
+    });
+    tiles.addTo(propertyMap);
+    L.circleMarker([localizacao.lat, localizacao.lon], { radius: 8 }).addTo(propertyMap);
+    mapStatus.textContent = `Localização aproximada; confirme o endereço antes de tomar decisões. Resultado: ${localizacao.endereco}`;
+    propertyMap.invalidateSize();
+  } catch (error) {
+    if (requestId !== mapRequest || !propertyDialog.open) return;
+    console.error("Erro ao consultar a localização:", error);
+    mapStatus.textContent = "Não foi possível carregar a localização. Confira o endereço no anúncio da Caixa.";
+    mapElement.hidden = true;
+    if (propertyMap) {
+      propertyMap.remove();
+      propertyMap = null;
+    }
+  }
+}
+
+function detailsButton(property) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "detail-button";
+  button.textContent = "Ver imóvel";
+  button.setAttribute("aria-label", `Ver detalhes do imóvel ${property.row[0]}`);
+  button.addEventListener("click", () => openProperty(property));
+  return button;
+}
+
+function makeClickable(element, property) {
+  element.addEventListener("click", event => {
+    if (!event.target.closest("button, a")) openProperty(property);
+  });
+}
+
 function alertButton(property) {
   const button = document.createElement("button");
   button.type = "button";
@@ -155,8 +243,7 @@ function alertButton(property) {
   button.setAttribute("aria-label", `Ver motivo do alerta do imóvel ${property.row[0]}`);
   button.addEventListener("click", () => {
     alertTitle.textContent = `Alerta histórico — imóvel ${property.row[0]}`;
-    const groups = property.alert.grupos.map(group => `${group.grupo}: ${group.percentual.replace(".", ",")}%`).join("; ");
-    alertDescription.textContent = `No bairro ${property.alert.nome}, parte da área foi mapeada como controlada por grupos armados em 2022 (${groups} da área total do bairro).`;
+    alertDescription.textContent = alertText(property);
     alertDialog.showModal();
   });
   return button;
@@ -173,6 +260,7 @@ function discountText(discount) {
 function createCard(property, rank) {
   const card = document.createElement("article");
   card.className = `property-card${property.alert ? " has-alert" : ""}`;
+  makeClickable(card, property);
   const head = document.createElement("div");
   head.className = "card-heading";
   addText(head, "span", property.type || "Imóvel", "type-badge");
@@ -187,7 +275,7 @@ function createCard(property, rank) {
   const meta = document.createElement("div");
   meta.className = "card-meta";
   addText(meta, "span", `${areaText(property.area)}${property.rooms === null ? "" : ` · ${property.rooms} quarto(s)`}`);
-  meta.append(detailLink(property));
+  meta.append(detailsButton(property));
   card.append(meta);
   if (property.alert) card.append(alertButton(property));
   return card;
@@ -208,13 +296,14 @@ function renderResults() {
   const fragment = document.createDocumentFragment();
   for (const property of visible) {
     const row = document.createElement("tr");
+    makeClickable(row, property);
     if (property.alert) row.classList.add("has-alert");
     const values = [property.row[0], property.row[1], property.row[2], property.row[3], property.type,
       `R$ ${property.row[5]}`, `R$ ${property.row[6]}`, discountText(property.discount), areaText(property.area),
       property.row[4], property.row[8], property.row[9], property.row[10]];
     for (const value of values) addText(row, "td", value);
     const details = document.createElement("td");
-    details.append(detailLink(property));
+    details.append(detailsButton(property));
     row.append(details);
     const action = document.createElement("td");
     action.className = "action-column";
@@ -374,6 +463,13 @@ alertDialog.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     event.preventDefault();
     alertDialog.close();
+  }
+});
+propertyDialog.addEventListener("close", () => {
+  mapRequest++;
+  if (propertyMap) {
+    propertyMap.remove();
+    propertyMap = null;
   }
 });
 updateSavedFilters();

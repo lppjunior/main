@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Imóveis Caixa</title>
+  <link rel="stylesheet" href="/leaflet.css">
   <link rel="stylesheet" href="/style.css">
+  <script src="/leaflet.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -100,6 +102,26 @@
     <p id="alert-disclaimer">O mapa identifica áreas do bairro em 2022. Ele não confirma que o imóvel esteja na área mapeada nem a situação atual.</p>
     <p><a href="https://github.com/olucasandre/mapa-faccoes-rio-bairros" target="_blank" rel="noopener noreferrer">Conhecer a fonte dos dados</a></p>
     <form method="dialog"><button class="button button-muted" type="submit">Fechar</button></form>
+  </dialog>
+  <dialog id="property-dialog" aria-labelledby="property-title">
+    <div class="property-dialog-heading">
+      <h2 id="property-title">Detalhes do imóvel</h2>
+      <form method="dialog"><button class="button button-muted" type="submit" aria-label="Fechar detalhes">Fechar</button></form>
+    </div>
+    <div class="property-details">
+      <div class="photo-placeholder">
+        <strong>Foto indisponível</strong>
+        <p>O CSV não contém fotos. Consulte o anúncio da Caixa.</p>
+        <div id="property-link"></div>
+      </div>
+      <dl id="property-fields"></dl>
+    </div>
+    <div id="property-alert"></div>
+    <section class="property-map-section" aria-labelledby="map-title">
+      <h3 id="map-title">Localização no mapa</h3>
+      <p id="map-status" role="status" aria-live="polite"></p>
+      <div id="property-map" aria-label="Mapa da localização aproximada" hidden></div>
+    </section>
   </dialog>
 </body>
 </html>

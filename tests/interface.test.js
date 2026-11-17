@@ -16,7 +16,10 @@ async function openPage(data, responseForUrl = () => ({ ok: true, json: async ()
   const calls = [];
   dom.window.fetch = async url => { calls.push(url); return responseForUrl(url); };
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
-  dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
+  dom.window.HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+    this.dispatchEvent(new dom.window.Event("close"));
+  };
   dom.window.eval(script);
   await new Promise(resolve => setImmediate(resolve));
   return { dom, document: dom.window.document, calls };
@@ -43,6 +46,7 @@ test("ranking, alertas, diálogo e paginação usam os imóveis correspondentes"
     assert.equal(document.querySelector("#ranking-cards .card-price").textContent, "R$ 100.000,00");
     assert.match(document.querySelector("#ranking-cards .discount-badge").textContent, /99%/);
     rows[0].querySelector(".alert-button").click();
+    assert.equal(document.querySelector("#property-dialog").open, false);
     assert.match(document.querySelector("#alert-title").textContent, /imóvel 1$/);
     assert.match(document.querySelector("#alert-description").textContent, /Milicia: 25,2%/);
     document.querySelector("#alert-dialog").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
@@ -52,6 +56,33 @@ test("ranking, alertas, diálogo e paginação usam os imóveis correspondentes"
     assert.ok(last.classList.contains("has-alert"));
     last.querySelector(".alert-button").click();
     assert.match(document.querySelector("#alert-title").textContent, /imóvel 51$/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("resposta atrasada não substitui o mapa do imóvel aberto depois", async () => {
+  const data = { dataGeracao: "data", imoveis: [
+    row(1, "SP", "SAO PAULO", "CENTRO", "Casa", 30),
+    row(2, "SP", "SAO PAULO", "CENTRO", "Casa", 20),
+  ], alertas: [null, null] };
+  let resolveFirst;
+  const first = new Promise(resolve => { resolveFirst = resolve; });
+  const { dom, document } = await openPage(data, url => {
+    if (url === "/api/imoveis/1/localizacao") return first;
+    if (url === "/api/imoveis/2/localizacao") return { ok: true, json: async () => ({ localizacao: null }) };
+    return { ok: true, json: async () => data };
+  });
+  try {
+    document.querySelectorAll("tbody .detail-button")[0].click();
+    document.querySelector("#property-dialog").close();
+    document.querySelectorAll("tbody .detail-button")[1].click();
+    await new Promise(resolve => setImmediate(resolve));
+    resolveFirst({ ok: true, json: async () => ({ localizacao: { lat: 1, lon: 2, endereco: "antigo" } }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(document.querySelector("#property-title").textContent, /imóvel 2/i);
+    assert.match(document.querySelector("#map-status").textContent, /não encontrada/);
+    assert.equal(document.querySelector("#property-map").hidden, true);
   } finally {
     dom.window.close();
   }
@@ -137,6 +168,60 @@ test("sincronização e nova tentativa usam apenas o arquivo local", async () =>
     document.querySelector("#retry").click();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(calls, ["/api/imoveis", "/api/imoveis?local=1", "/api/imoveis?local=1"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("detalhes exibem os campos, alerta e mapa aproximado do imóvel selecionado", async () => {
+  const properties = [row(1, "RJ", "RIO DE JANEIRO", "CENTRO", "Casa, 3 qto(s)", 45)];
+  const data = { dataGeracao: "data", imoveis: properties,
+    alertas: [{ nome: "Centro", grupos: [{ grupo: "CV", percentual: "2.5" }] }] };
+  const { dom, document, calls } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? { ok: true, json: async () => ({ localizacao: { lat: -22.9, lon: -43.2, endereco: "Centro, Rio" } }) }
+    : { ok: true, json: async () => data });
+  let marker;
+  dom.window.L = {
+    map: () => ({ setView: () => ({ invalidateSize() {}, remove() {} }) }),
+    tileLayer: () => ({ on() {}, addTo() {} }),
+    circleMarker: coords => { marker = coords; return { addTo() {} }; },
+  };
+  try {
+    document.querySelector("tbody tr td").click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(document.querySelector("#property-dialog").open, true);
+    assert.match(document.querySelector("#property-fields").textContent, /Rua 1/);
+    assert.match(document.querySelector("#property-fields").textContent, /Venda Direta Online/);
+    assert.match(document.querySelector(".photo-placeholder").textContent, /Foto indisponível/);
+    assert.equal(document.querySelector("#property-link a").href, properties[0][11]);
+    assert.match(document.querySelector("#property-alert").textContent, /CV: 2,5%/);
+    assert.match(document.querySelector("#map-status").textContent, /aproximada.*Centro, Rio/);
+    assert.deepEqual(Array.from(marker), [-22.9, -43.2]);
+    assert.equal(document.querySelector("#property-map").hidden, false);
+    assert.deepEqual(calls, ["/api/imoveis", "/api/imoveis/1/localizacao"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("detalhes informam localização ausente ou indisponível sem abrir outro diálogo para o alerta", async () => {
+  const data = { dataGeracao: "data", imoveis: [row(1, "SP", "SAO PAULO", "CENTRO", "Casa", 20)], alertas: [null] };
+  let failure = false;
+  const { dom, document } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? failure ? { ok: false, status: 502 } : { ok: true, json: async () => ({ localizacao: null }) }
+    : { ok: true, json: async () => data });
+  try {
+    document.querySelector("#grid-view").click();
+    document.querySelector("#result-cards .detail-button").click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(document.querySelector("#map-status").textContent, /não encontrada/);
+    assert.equal(document.querySelector("#property-map").hidden, true);
+    document.querySelector("#property-dialog").close();
+    failure = true;
+    document.querySelector("#ranking-cards .property-card").click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(document.querySelector("#map-status").textContent, /Não foi possível/);
+    assert.equal(document.querySelector("#property-map").hidden, true);
   } finally {
     dom.window.close();
   }
