@@ -3,11 +3,14 @@ const { readFile } = require("node:fs/promises");
 const path = require("node:path");
 const caixa = require("./caixa");
 const alertas = require("./alertas");
+const { createLocator } = require("./localizacao");
 
 const STATIC_FILES = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
+  "/leaflet.js": ["node_modules/leaflet/dist/leaflet.js", "text/javascript; charset=utf-8"],
+  "/leaflet.css": ["node_modules/leaflet/dist/leaflet.css", "text/css; charset=utf-8"],
 };
 
 function send(response, status, contentType, content) {
@@ -20,7 +23,7 @@ function send(response, status, contentType, content) {
   response.end(body);
 }
 
-function createServer({ loadProperties = caixa.loadProperties, fetchAlertData = alertas.fetchAlertData } = {}) {
+function createServer({ loadProperties = caixa.loadProperties, fetchAlertData = alertas.fetchAlertData, locate = createLocator() } = {}) {
   return http.createServer(async (request, response) => {
     if (request.method !== "GET") {
       send(response, 405, "text/plain; charset=utf-8", "Método não permitido");
@@ -46,6 +49,21 @@ function createServer({ loadProperties = caixa.loadProperties, fetchAlertData = 
         data.alertas = null;
       }
       send(response, 200, "application/json; charset=utf-8", JSON.stringify(data));
+    } else if (/^\/api\/imoveis\/\d+\/localizacao$/.test(pathname)) {
+      const id = pathname.split("/")[3];
+      try {
+        const data = await loadProperties(undefined, { downloadIfMissing: false });
+        const property = data.imoveis.find(row => row[0] === id);
+        if (!property) {
+          send(response, 404, "application/json; charset=utf-8", JSON.stringify({ erro: "Imóvel não encontrado na lista local." }));
+          return;
+        }
+        const location = await locate(property);
+        send(response, 200, "application/json; charset=utf-8", JSON.stringify({ localizacao: location }));
+      } catch (error) {
+        console.error("Não foi possível consultar a localização:", error);
+        send(response, 502, "application/json; charset=utf-8", JSON.stringify({ erro: "Não foi possível consultar a localização." }));
+      }
     } else if (Object.hasOwn(STATIC_FILES, pathname)) {
       const [filename, contentType] = STATIC_FILES[pathname];
       try {
