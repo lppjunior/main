@@ -52,9 +52,8 @@ input[type="checkbox"] { accent-color: #005ca9; width: 1rem; height: 1rem; flex:
 .notice { margin: 1rem 0; padding: .65rem .85rem; border-left: 4px solid #d68a00; border-radius: .35rem; background: #fff7e6; color: #624300; font-size: .8rem; line-height: 1.4; }
 .ranking { margin: 1.4rem 0; }
 .ranking h2 { margin-bottom: .85rem; }
-.carousel { display: flex; align-items: center; gap: .75rem; }
-.carousel-button { flex: none; width: 2rem; height: 2rem; border: 1px solid #d2e0ed; border-radius: 50%; background: #f7fafc; color: #28415c; font-size: 1.2rem; }
-.ranking-cards { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; min-width: 0; }
+.ranking-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; min-width: 0; }
+.ranking-toggle:not([hidden]) { display: block; margin: .8rem auto 0; }
 .property-card { display: flex; flex-direction: column; gap: .4rem; min-width: 0; background: white; border: 1px solid #d8e3ee; border-radius: .8rem; padding: .9rem; }
 .property-card, tbody tr { cursor: pointer; }
 .detail-button { padding: 0; border: 0; background: transparent; color: #005ca9; text-decoration: underline; font-weight: 600; }
@@ -69,7 +68,8 @@ input[type="checkbox"] { accent-color: #005ca9; width: 1rem; height: 1rem; flex:
 .card-assessment { color: #758599; font-size: .7rem; text-decoration: line-through; }
 .card-location { min-height: 2.2em; font-size: .75rem; line-height: 1.4; overflow-wrap: anywhere; }
 .card-location::before { content: "⌖ "; color: #f09000; }
-.card-meta { display: flex; justify-content: space-between; gap: .6rem; align-items: center; color: #718198; font-size: .72rem; margin-top: auto; }
+.card-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem; align-items: center; color: #718198; font-size: .72rem; margin-top: auto; }
+.card-meta .action-links { margin-left: auto; }
 .property-card .alert-button { align-self: flex-end; }
 .results .panel-heading { margin-bottom: .7rem; }
 #result-count { color: #687d94; font-size: .75rem; font-weight: 500; }
@@ -80,7 +80,12 @@ input[type="checkbox"] { accent-color: #005ca9; width: 1rem; height: 1rem; flex:
 table { border-collapse: collapse; width: 100%; font-size: .76rem; }
 th, td { padding: .65rem .55rem; border-bottom: 1px solid #dbe5ee; text-align: left; vertical-align: middle; white-space: nowrap; }
 th { color: #718198; font-size: .7rem; font-weight: 500; background: white; }
-td:nth-child(10), td:nth-child(12) { min-width: 16rem; white-space: normal; }
+td:nth-child(11), td:nth-child(13) { min-width: 16rem; white-space: normal; }
+.action-links { display: flex; align-items: center; gap: .25rem; }
+.icon-action { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: .3rem; border: 1px solid #d5e0eb; border-radius: .4rem; background: white; color: #005ca9; text-decoration: none; }
+.icon-action svg { width: 100%; height: 100%; }
+.icon-action[aria-disabled="true"] { color: #9aa8b6; cursor: default; }
+.icon-action:not([aria-disabled="true"]):hover { background: #e6f0f8; }
 tr.has-alert td { background: #fff0f0; }
 .action-column { position: sticky; right: 0; background: white; min-width: 8.5rem; }
 th.action-column { z-index: 1; }
@@ -95,11 +100,10 @@ dialog::backdrop { background: rgb(0 0 0 / 50%); }
 dialog p { line-height: 1.5; margin-top: .8rem; }
 dialog form { display: flex; justify-content: flex-end; margin-top: 1rem; }
 #property-dialog { width: min(60rem, 94vw); max-height: 90vh; }
-.property-dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.property-dialog-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
+.property-dialog-controls { display: flex; align-items: center; gap: .45rem; margin-left: auto; }
 .property-dialog-heading form { margin: 0; }
-.property-details { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: 1.2rem; margin-top: 1rem; }
-.photo-placeholder { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 1.5rem; min-height: 12rem; border-radius: .6rem; background: #edf3f8; text-align: center; }
-.photo-placeholder p { margin: .5rem 0; }
+.property-details { margin-top: 1rem; }
 #property-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem .8rem; margin: 0; }
 #property-fields dt { font-weight: 700; }
 #property-fields dd { margin: 0; overflow-wrap: anywhere; }
@@ -117,8 +121,6 @@ dialog form { display: flex; justify-content: flex-end; margin-top: 1rem; }
   .panel-heading { align-items: flex-start; flex-direction: column; }
   .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ranking-cards, .result-cards:not([hidden]) { grid-template-columns: 1fr; }
-  .carousel { gap: .35rem; }
-  .property-details { grid-template-columns: 1fr; }
   #city-filter .location-menu { left: auto; right: 0; }
   #property-fields { grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr); }
 }

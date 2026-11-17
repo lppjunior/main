@@ -15,8 +15,7 @@ const previous = document.querySelector("#previous");
 const next = document.querySelector("#next");
 const pageInfo = document.querySelector("#page-info");
 const rankingCards = document.querySelector("#ranking-cards");
-const rankingPrevious = document.querySelector("#ranking-previous");
-const rankingNext = document.querySelector("#ranking-next");
+const rankingToggle = document.querySelector("#ranking-toggle");
 const rankingEmpty = document.querySelector("#ranking-empty");
 const resultsEmpty = document.querySelector("#results-empty");
 const listView = document.querySelector("#list-view");
@@ -28,8 +27,8 @@ const alertTitle = document.querySelector("#alert-title");
 const alertDescription = document.querySelector("#alert-description");
 const propertyDialog = document.querySelector("#property-dialog");
 const propertyTitle = document.querySelector("#property-title");
+const propertyDialogActions = document.querySelector("#property-dialog-actions");
 const propertyFields = document.querySelector("#property-fields");
-const propertyLink = document.querySelector("#property-link");
 const propertyAlert = document.querySelector("#property-alert");
 const mapElement = document.querySelector("#property-map");
 const mapStatus = document.querySelector("#map-status");
@@ -47,7 +46,7 @@ const locationFilters = Object.fromEntries(["uf", "city", "district"].map(key =>
 let properties = [];
 let filtered = [];
 let page = 0;
-let rankingPage = 0;
+let rankingExpanded = false;
 let view = "list";
 let alertsAvailable = false;
 let lastLoadLocalOnly = false;
@@ -179,7 +178,6 @@ function applyFilters() {
       (!fields.hideAlerts.checked || !property.alert);
   }).sort((a, b) => (b.discount ?? -Infinity) - (a.discount ?? -Infinity));
   page = 0;
-  rankingPage = 0;
   render();
 }
 
@@ -199,15 +197,12 @@ function caixaLink(property) {
       link.href = url.href;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.textContent = "Ver anúncio e fotos na Caixa";
       return link;
     }
   } catch (error) {
     console.error("Link do imóvel inválido:", error);
   }
-  const unavailable = document.createElement("span");
-  unavailable.textContent = "Link indisponível";
-  return unavailable;
+  return document.createElement("span");
 }
 
 function alertText(property) {
@@ -222,6 +217,7 @@ async function openProperty(property) {
     propertyMap = null;
   }
   propertyTitle.textContent = `Imóvel ${property.row[0]}`;
+  propertyDialogActions.replaceChildren(propertyActions(property, false));
   propertyFields.replaceChildren();
   propertyFieldNames.forEach((name, index) => {
     addText(propertyFields, "dt", name);
@@ -230,7 +226,6 @@ async function openProperty(property) {
       : value && index === 7 ? `${value.replace(".", ",")}%` : value;
     addText(propertyFields, "dd", formatted || "Não informado");
   });
-  propertyLink.replaceChildren(caixaLink(property));
   propertyAlert.replaceChildren();
   if (property.alert) addText(propertyAlert, "p", alertText(property), "notice");
   mapElement.hidden = true;
@@ -275,15 +270,64 @@ function detailsButton(property) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "detail-button";
-  button.textContent = "Ver imóvel";
-  button.setAttribute("aria-label", `Ver detalhes do imóvel ${property.row[0]}`);
   button.addEventListener("click", () => openProperty(property));
   return button;
 }
 
+function actionIcon(pathData) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathData);
+  svg.append(path);
+  return svg;
+}
+
+function propertyActions(property, includeDetails = true) {
+  const actions = document.createElement("div");
+  actions.className = "action-links";
+  const caixa = caixaLink(property);
+  const address = property.row[4].trim();
+  const city = property.row[2].trim();
+  const uf = property.row[1].trim();
+  const map = document.createElement(address && city && uf ? "a" : "span");
+  if (map.tagName === "A") {
+    const url = new URL("https://www.google.com/maps/search/");
+    url.searchParams.set("api", "1");
+    url.searchParams.set("query", [address, property.row[3], city, uf, "Brasil"].filter(Boolean).join(", "));
+    map.href = url.href;
+    map.target = "_blank";
+    map.rel = "noopener noreferrer";
+  }
+  const items = [
+    [caixa, `Ver imóvel ${property.row[0]} na Caixa`, "M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6"],
+    [map, `Buscar imóvel ${property.row[0]} no Google Maps`, "M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12ZM12 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
+  ];
+  if (includeDetails) {
+    items.push([detailsButton(property), `Ver detalhes do imóvel ${property.row[0]}`, "M6 3h9l4 4v14H6zM15 3v4h4M9 11h7M9 14h7M9 17h5"]);
+  }
+  for (const [element, label, icon] of items) {
+    const available = element.tagName !== "SPAN";
+    const description = available ? label : `${label} — indisponível`;
+    element.classList.add("icon-action");
+    element.title = description;
+    element.setAttribute("aria-label", description);
+    if (!available) element.setAttribute("aria-disabled", "true");
+    element.replaceChildren(actionIcon(icon));
+    actions.append(element);
+  }
+  return actions;
+}
+
 function makeClickable(element, property) {
   element.addEventListener("click", event => {
-    if (!event.target.closest("button, a")) openProperty(property);
+    if (!event.target.closest("button, a, .row-actions, .action-links")) openProperty(property);
   });
 }
 
@@ -327,7 +371,7 @@ function createCard(property, rank) {
   const meta = document.createElement("div");
   meta.className = "card-meta";
   addText(meta, "span", `${areaText(property.area)}${property.rooms === null ? "" : ` · ${property.rooms} quarto(s)`}`);
-  meta.append(detailsButton(property));
+  meta.append(propertyActions(property));
   card.append(meta);
   if (property.alert) card.append(alertButton(property));
   return card;
@@ -335,10 +379,11 @@ function createCard(property, rank) {
 
 function renderRanking() {
   const ranked = filtered.filter(property => property.discount !== null).slice(0, 20);
-  rankingCards.replaceChildren(...ranked.slice(rankingPage * 3, rankingPage * 3 + 3)
-    .map((property, index) => createCard(property, rankingPage * 3 + index + 1)));
-  rankingPrevious.disabled = rankingPage === 0;
-  rankingNext.disabled = (rankingPage + 1) * 3 >= ranked.length;
+  rankingCards.replaceChildren(...ranked.slice(0, rankingExpanded ? 20 : 3)
+    .map((property, index) => createCard(property, index + 1)));
+  rankingToggle.hidden = ranked.length <= 3;
+  rankingToggle.setAttribute("aria-expanded", String(rankingExpanded));
+  rankingToggle.textContent = rankingExpanded ? "Mostrar menos ↑" : `Mostrar todos (${ranked.length}) ↓`;
   rankingEmpty.hidden = ranked.length > 0;
   rankingEmpty.textContent = filtered.length ? "Nenhum imóvel com desconto informado." : "Nenhum imóvel encontrado para os filtros selecionados.";
 }
@@ -350,13 +395,15 @@ function renderResults() {
     const row = document.createElement("tr");
     makeClickable(row, property);
     if (property.alert) row.classList.add("has-alert");
-    const values = [property.row[0], property.row[1], property.row[2], property.row[3], property.type,
+    addText(row, "td", property.row[10]);
+    const actions = document.createElement("td");
+    actions.className = "row-actions";
+    actions.append(propertyActions(property));
+    row.append(actions);
+    const values = [property.row[1], property.row[2], property.row[3], property.type,
       `R$ ${property.row[5]}`, `R$ ${property.row[6]}`, discountText(property.discount), areaText(property.area),
-      property.row[4], property.row[8], property.row[9], property.row[10]];
+      property.row[4], property.row[8], property.row[9]];
     for (const value of values) addText(row, "td", value);
-    const details = document.createElement("td");
-    details.append(detailsButton(property));
-    row.append(details);
     const action = document.createElement("td");
     action.className = "action-column";
     if (property.alert) action.append(alertButton(property));
@@ -562,12 +609,19 @@ savedFilters.addEventListener("change", () => {
 });
 previous.addEventListener("click", () => { page--; renderResults(); });
 next.addEventListener("click", () => { page++; renderResults(); });
-rankingPrevious.addEventListener("click", () => { rankingPage--; renderRanking(); });
-rankingNext.addEventListener("click", () => { rankingPage++; renderRanking(); });
+rankingToggle.addEventListener("click", () => { rankingExpanded = !rankingExpanded; renderRanking(); });
 listView.addEventListener("click", () => { view = "list"; renderResults(); });
 gridView.addEventListener("click", () => { view = "grid"; renderResults(); });
 sync.addEventListener("click", () => loadProperties(true));
 retry.addEventListener("click", () => loadProperties(lastLoadLocalOnly));
+for (const dialog of [propertyDialog, alertDialog]) {
+  dialog.addEventListener("click", event => {
+    if (event.target !== dialog) return;
+    const bounds = dialog.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+  });
+}
 alertDialog.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     event.preventDefault();

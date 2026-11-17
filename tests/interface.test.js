@@ -25,6 +25,11 @@ async function openPage(data, responseForUrl = () => ({ ok: true, json: async ()
   return { dom, document: dom.window.document, calls };
 }
 
+function rowIds(document) {
+  return [...document.querySelectorAll("tbody tr td:nth-child(2) button")]
+    .map(link => link.getAttribute("aria-label").match(/imóvel (\S+)/)[1]);
+}
+
 function change(dom, control, value) {
   if (control.type === "checkbox") control.checked = value;
   else control.value = value;
@@ -64,6 +69,192 @@ test("ranking, alertas, diálogo e paginação usam os imóveis correspondentes"
     assert.ok(last.classList.contains("has-alert"));
     last.querySelector(".alert-button").click();
     assert.match(document.querySelector("#alert-title").textContent, /imóvel 51$/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("ranking mostra três imóveis e permite expandir até vinte e recolher", async () => {
+  const properties = Array.from({ length: 22 }, (_, index) =>
+    row(index + 1, "RJ", "RIO", "CENTRO", "Casa", 100 - index));
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: properties.map(() => null) });
+  try {
+    const cards = () => document.querySelectorAll("#ranking-cards .property-card");
+    const toggle = document.querySelector("#ranking-toggle");
+    assert.equal(cards().length, 3);
+    assert.equal(toggle.hidden, false);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.match(toggle.textContent, /20/);
+    toggle.click();
+    assert.equal(cards().length, 20);
+    assert.equal(cards()[19].querySelector(".rank-badge").textContent, "#20");
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    const minDiscount = document.querySelector('[name="minDiscount"]');
+    change(dom, minDiscount, "99");
+    assert.equal(cards().length, 2);
+    assert.equal(toggle.hidden, true);
+    change(dom, minDiscount, "");
+    assert.equal(cards().length, 20);
+    toggle.click();
+    assert.equal(cards().length, 3);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    change(dom, minDiscount, "100");
+    assert.equal(cards().length, 1);
+    assert.equal(toggle.hidden, true);
+    change(dom, document.querySelector('[name="search"]'), "não existe");
+    assert.equal(cards().length, 0);
+    assert.equal(toggle.hidden, true);
+    assert.equal(document.querySelector("#ranking-empty").hidden, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("ações no início da tabela abrem a Caixa, pesquisam o endereço e exibem o popup", async () => {
+  const property = row(42, "RJ", "PETROPOLIS", "CENTRO", "Casa", 30);
+  property[4] = "Rua São José, N. 10";
+  property[11] = "https://venda-imoveis.caixa.gov.br/sistema/detalhe-imovel.asp?hdnimovel=42";
+  const data = { dataGeracao: "data", imoveis: [property], alertas: [null] };
+  const { dom, document, calls } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? { ok: true, json: async () => ({ localizacao: null }) }
+    : { ok: true, json: async () => data });
+  try {
+    const header = [...document.querySelectorAll("thead th")].map(cell => cell.textContent);
+    assert.deepEqual(header.slice(0, 2), ["Modalidade", "Ações"]);
+    assert.ok(!header.includes("Nº"));
+    assert.ok(!header.includes("Detalhes"));
+    const actions = document.querySelectorAll("tbody tr td:nth-child(2) .icon-action");
+    assert.equal(actions.length, 3);
+    assert.ok([...actions].every(action => action.querySelector("svg") && action.getAttribute("aria-label")));
+    assert.equal(actions[0].href, property[11]);
+    assert.equal(actions[0].target, "_blank");
+    const map = new URL(actions[1].href);
+    assert.equal(map.origin + map.pathname, "https://www.google.com/maps/search/");
+    assert.equal(map.searchParams.get("api"), "1");
+    assert.equal(map.searchParams.get("query"), "Rua São José, N. 10, CENTRO, PETROPOLIS, RJ, Brasil");
+    assert.equal(actions[1].target, "_blank");
+    for (const link of [actions[0], actions[1]]) {
+      link.addEventListener("click", event => event.preventDefault());
+      link.querySelector("path").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+      assert.equal(document.querySelector("#property-dialog").open, false);
+    }
+    actions[2].click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(document.querySelector("#property-dialog").open, true);
+    assert.match(document.querySelector("#property-title").textContent, /42/);
+    assert.deepEqual(calls, ["/api/imoveis", "/api/imoveis/42/localizacao"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("ações indisponíveis não abrem links ou popup", async () => {
+  const property = row(1, "RJ", "RIO", "CENTRO", "Casa", 20);
+  property[4] = "";
+  property[11] = "https://example.com/imovel";
+  const { dom, document } = await openPage({ dataGeracao: "data", imoveis: [property], alertas: [null] });
+  try {
+    const actions = document.querySelectorAll("tbody .icon-action");
+    for (const action of [actions[0], actions[1]]) {
+      assert.equal(action.tagName, "SPAN");
+      assert.equal(action.getAttribute("aria-disabled"), "true");
+      assert.match(action.title, /indisponível/);
+      action.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      assert.equal(document.querySelector("#property-dialog").open, false);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("cartões e popup exibem ações do imóvel selecionado", async () => {
+  const first = row(1, "RJ", "RIO", "CENTRO", "Casa", 30);
+  const second = row(2, "SP", "SAO PAULO", "JARDIM", "Casa", 20);
+  first[11] = "https://venda-imoveis.caixa.gov.br/imovel?id=1";
+  second[11] = "https://venda-imoveis.caixa.gov.br/imovel?id=2";
+  const data = { dataGeracao: "data", imoveis: [first, second], alertas: [null, null] };
+  const { dom, document } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? { ok: true, json: async () => ({ localizacao: null }) }
+    : { ok: true, json: async () => data });
+  try {
+    const rankingActions = document.querySelectorAll("#ranking-cards .property-card:first-child .icon-action");
+    assert.equal(rankingActions.length, 3);
+    assert.equal(rankingActions[0].href, first[11]);
+    assert.match(new URL(rankingActions[1].href).searchParams.get("query"), /Rua 1.*RIO, RJ/);
+    rankingActions[1].addEventListener("click", event => event.preventDefault());
+    rankingActions[1].querySelector("path").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    assert.equal(document.querySelector("#property-dialog").open, false);
+    rankingActions[2].click();
+    await new Promise(resolve => setImmediate(resolve));
+    let popupActions = document.querySelectorAll("#property-dialog-actions .icon-action");
+    assert.equal(popupActions.length, 2);
+    assert.equal(popupActions[0].href, first[11]);
+    assert.match(new URL(popupActions[1].href).searchParams.get("query"), /Rua 1.*RIO, RJ/);
+    document.querySelector("#property-dialog").close();
+    document.querySelector("#grid-view").click();
+    const cardActions = document.querySelectorAll("#result-cards .property-card:nth-child(2) .icon-action");
+    assert.equal(cardActions.length, 3);
+    assert.equal(cardActions[0].href, second[11]);
+    cardActions[2].click();
+    await new Promise(resolve => setImmediate(resolve));
+    popupActions = document.querySelectorAll("#property-dialog-actions .icon-action");
+    assert.equal(popupActions[0].href, second[11]);
+    assert.match(new URL(popupActions[1].href).searchParams.get("query"), /Rua 2.*SAO PAULO, SP/);
+    assert.match(document.querySelector("#property-title").textContent, /imóvel 2/i);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("cartões e popup sinalizam links indisponíveis sem abrir outro popup", async () => {
+  const property = row(1, "RJ", "RIO", "CENTRO", "Casa", 20);
+  property[4] = "";
+  property[11] = "https://example.com/imovel";
+  const data = { dataGeracao: "data", imoveis: [property], alertas: [null] };
+  const { dom, document } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? { ok: true, json: async () => ({ localizacao: null }) }
+    : { ok: true, json: async () => data });
+  try {
+    const actions = document.querySelectorAll("#ranking-cards .icon-action");
+    for (const action of [actions[0], actions[1]]) {
+      assert.equal(action.getAttribute("aria-disabled"), "true");
+      action.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      assert.equal(document.querySelector("#property-dialog").open, false);
+    }
+    actions[2].click();
+    await new Promise(resolve => setImmediate(resolve));
+    const popupActions = document.querySelectorAll("#property-dialog-actions .icon-action");
+    assert.equal(popupActions.length, 2);
+    assert.ok([...popupActions].every(action => action.getAttribute("aria-disabled") === "true"));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("clique fora fecha os diálogos, mas clique no conteúdo os mantém abertos", async () => {
+  const property = row(1, "RJ", "RIO", "CENTRO", "Casa", 20);
+  const data = { dataGeracao: "data", imoveis: [property],
+    alertas: [{ nome: "Centro", grupos: [{ grupo: "CV", percentual: "2.5" }] }] };
+  const { dom, document } = await openPage(data, url => url.startsWith("/api/imoveis/")
+    ? { ok: true, json: async () => ({ localizacao: null }) }
+    : { ok: true, json: async () => data });
+  try {
+    const propertyDialog = document.querySelector("#property-dialog");
+    const alertDialog = document.querySelector("#alert-dialog");
+    for (const dialog of [propertyDialog, alertDialog]) {
+      dialog.getBoundingClientRect = () => ({ left: 20, right: 200, top: 20, bottom: 200 });
+    }
+    document.querySelector("#ranking-cards .detail-button").click();
+    await new Promise(resolve => setImmediate(resolve));
+    propertyDialog.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, clientX: 50, clientY: 50 }));
+    assert.equal(propertyDialog.open, true);
+    propertyDialog.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, clientX: 10, clientY: 10 }));
+    assert.equal(propertyDialog.open, false);
+    document.querySelector("tbody .alert-button").click();
+    alertDialog.querySelector("h2").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, clientX: 10, clientY: 10 }));
+    assert.equal(alertDialog.open, true);
+    alertDialog.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, clientX: 250, clientY: 50 }));
+    assert.equal(alertDialog.open, false);
   } finally {
     dom.window.close();
   }
@@ -110,7 +301,7 @@ test("filtros, visualização e filtros salvos refletem os dados", async () => {
     assert.equal(document.querySelectorAll("tbody tr").length, 2);
     toggleLocation(document, "city", "RJ - RIO DE JANEIRO");
     change(dom, fields.minRooms, "3");
-    assert.equal(document.querySelector("tbody tr td").textContent, "1");
+    assert.equal(rowIds(document)[0], "1");
     change(dom, fields.hideAlerts, true);
     assert.equal(document.querySelectorAll("tbody tr").length, 0);
     change(dom, fields.hideAlerts, false);
@@ -147,12 +338,12 @@ test("seleção múltipla combina valores e atualiza cidades e bairros disponív
     toggleLocation(document, "city", "SP - SAO PAULO");
     toggleLocation(document, "district", "RJ - RIO DE JANEIRO - CENTRO");
     toggleLocation(document, "district", "SP - SAO PAULO - CENTRO");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "3"]);
+    assert.deepEqual(rowIds(document), ["1", "3"]);
     assert.equal(document.querySelector("#uf-summary").textContent, "2 selecionados");
     assert.equal(document.querySelector("#city-summary").textContent, "2 selecionados");
     toggleLocation(document, "uf", "RJ");
     assert.equal(document.querySelector("#city-summary").textContent, "SP - SAO PAULO");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["3"]);
+    assert.deepEqual(rowIds(document), ["3"]);
     document.querySelector("#clear-filters").click();
     assert.equal(document.querySelectorAll("tbody tr").length, 5);
     assert.equal(document.querySelector("#district-summary").textContent, "Todos");
@@ -183,7 +374,7 @@ test("busca e seleção de vários bairros persistem em filtros salvos", async (
     assert.deepEqual(saved.districts, [JSON.stringify(["RJ", "RIO", "COPACABANA"]), JSON.stringify(["RJ", "RIO", "CENTRO"])]);
     document.querySelector("#clear-filters").click();
     change(dom, document.querySelector("#saved-filters"), "Vários bairros");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "2"]);
+    assert.deepEqual(rowIds(document), ["1", "2"]);
     assert.equal(document.querySelector("#district-summary").textContent, "2 selecionados");
     document.querySelector("#district-filter .location-clear").click();
     assert.equal(document.querySelectorAll("tbody tr").length, 3);
@@ -201,19 +392,19 @@ test("cidades e bairros homônimos são selecionados por UF e cidade", async () 
   const { dom, document } = await openPage({ dataGeracao: "data", imoveis: properties, alertas: [null, null, null] });
   try {
     toggleLocation(document, "city", "RJ - BOM JESUS");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1"]);
+    assert.deepEqual(rowIds(document), ["1"]);
     toggleLocation(document, "city", "SP - BOM JESUS");
     toggleLocation(document, "district", "RJ - BOM JESUS - CENTRO");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1"]);
+    assert.deepEqual(rowIds(document), ["1"]);
     toggleLocation(document, "district", "SP - BOM JESUS - CENTRO");
     document.querySelector("#filter-name").value = "Homônimos";
     document.querySelector("#save-filter").click();
     document.querySelector("#clear-filters").click();
     change(dom, document.querySelector("#saved-filters"), "Homônimos");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["1", "2"]);
+    assert.deepEqual(rowIds(document), ["1", "2"]);
     toggleLocation(document, "city", "RJ - BOM JESUS");
     assert.equal(document.querySelector("#district-summary").textContent, "SP - BOM JESUS - CENTRO");
-    assert.deepEqual([...document.querySelectorAll("tbody tr td:first-child")].map(cell => cell.textContent), ["2"]);
+    assert.deepEqual(rowIds(document), ["2"]);
   } finally {
     dom.window.close();
   }
@@ -290,20 +481,20 @@ test("busca, tipo, modalidade, preço, desconto e financiamento filtram resultad
   try {
     const fields = document.querySelector("#filters").elements;
     change(dom, fields.search, "rua 1");
-    assert.equal(document.querySelector("tbody tr td").textContent, "1");
+    assert.equal(rowIds(document)[0], "1");
     change(dom, fields.search, "");
     change(dom, fields.district, "jardim");
     assert.equal(document.querySelectorAll("tbody tr").length, 2);
     change(dom, fields.type, "Casa");
     change(dom, fields.modality, "Leilão");
-    assert.equal(document.querySelector("tbody tr td").textContent, "3");
+    assert.equal(rowIds(document)[0], "3");
     document.querySelector("#clear-filters").click();
     change(dom, fields.minPrice, "120000");
-    assert.equal(document.querySelector("tbody tr td").textContent, "1");
+    assert.equal(rowIds(document)[0], "1");
     change(dom, fields.minPrice, "");
     change(dom, fields.maxPrice, "100000");
     change(dom, fields.minDiscount, "50");
-    assert.equal(document.querySelector("tbody tr td").textContent, "2");
+    assert.equal(rowIds(document)[0], "2");
     change(dom, fields.financing, true);
     assert.equal(document.querySelectorAll("tbody tr").length, 0);
   } finally {
@@ -342,13 +533,13 @@ test("detalhes exibem os campos, alerta e mapa aproximado do imóvel selecionado
     circleMarker: coords => { marker = coords; return { addTo() {} }; },
   };
   try {
-    document.querySelector("tbody tr td").click();
+    document.querySelector("tbody tr td:nth-child(3)").click();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(document.querySelector("#property-dialog").open, true);
     assert.match(document.querySelector("#property-fields").textContent, /Rua 1/);
     assert.match(document.querySelector("#property-fields").textContent, /Venda Direta Online/);
-    assert.match(document.querySelector(".photo-placeholder").textContent, /Foto indisponível/);
-    assert.equal(document.querySelector("#property-link a").href, properties[0][11]);
+    assert.equal(document.querySelector(".photo-placeholder"), null);
+    assert.equal(document.querySelector("#property-dialog-actions a").href, properties[0][11]);
     assert.match(document.querySelector("#property-alert").textContent, /CV: 2,5%/);
     assert.match(document.querySelector("#map-status").textContent, /aproximada.*Centro, Rio/);
     assert.deepEqual(Array.from(marker), [-22.9, -43.2]);

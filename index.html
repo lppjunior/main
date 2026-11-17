@@ -85,11 +85,8 @@
 
     <section class="ranking" aria-labelledby="ranking-title">
       <h2 id="ranking-title">Top 20 · maiores descontos</h2>
-      <div class="carousel">
-        <button id="ranking-previous" class="carousel-button" type="button" aria-label="Imóveis anteriores">‹</button>
-        <div id="ranking-cards" class="ranking-cards"></div>
-        <button id="ranking-next" class="carousel-button" type="button" aria-label="Próximos imóveis">›</button>
-      </div>
+      <div id="ranking-cards" class="ranking-cards"></div>
+      <button id="ranking-toggle" class="button button-muted ranking-toggle" type="button" aria-controls="ranking-cards" aria-expanded="false" hidden>Mostrar todos ↓</button>
       <p id="ranking-empty" class="empty" hidden>Nenhum imóvel encontrado para os filtros selecionados.</p>
     </section>
 
@@ -104,11 +101,12 @@
       <div id="table-wrap" class="table-wrap">
         <table id="properties" hidden>
           <thead><tr>
-            <th scope="col">Nº</th><th scope="col">UF</th><th scope="col">Cidade</th><th scope="col">Bairro</th>
+            <th scope="col">Modalidade</th><th scope="col">Ações</th>
+            <th scope="col">UF</th><th scope="col">Cidade</th><th scope="col">Bairro</th>
             <th scope="col">Tipo</th><th scope="col">Preço</th><th scope="col">Avaliação</th>
             <th scope="col">Desc.</th><th scope="col">Área</th><th scope="col">Endereço</th>
-            <th scope="col">Financiamento</th><th scope="col">Descrição</th><th scope="col">Modalidade</th>
-            <th scope="col">Detalhes</th><th scope="col" class="action-column">Ação</th>
+            <th scope="col">Financiamento</th><th scope="col">Descrição</th>
+            <th scope="col" class="action-column">Alerta</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -134,14 +132,12 @@
   <dialog id="property-dialog" aria-labelledby="property-title">
     <div class="property-dialog-heading">
       <h2 id="property-title">Detalhes do imóvel</h2>
-      <form method="dialog"><button class="button button-muted" type="submit" aria-label="Fechar detalhes">Fechar</button></form>
+      <div class="property-dialog-controls">
+        <div id="property-dialog-actions"></div>
+        <form method="dialog"><button class="button button-muted" type="submit" aria-label="Fechar detalhes">Fechar</button></form>
+      </div>
     </div>
     <div class="property-details">
-      <div class="photo-placeholder">
-        <strong>Foto indisponível</strong>
-        <p>O CSV não contém fotos. Consulte o anúncio da Caixa.</p>
-        <div id="property-link"></div>
-      </div>
       <dl id="property-fields"></dl>
     </div>
     <div id="property-alert"></div>

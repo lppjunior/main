@@ -48,13 +48,19 @@ em cada menu para encontrar opções, ou o campo **Bairro contém** para buscar
 parte do nome. Esse campo também é combinado com os bairros selecionados.
 
 O Top 20 apresenta os imóveis com maiores descontos dentre os resultados
-filtrados; não é uma avaliação de custo-benefício ou recomendação de compra.
+filtrados; mostra três inicialmente e pode ser expandido para até 20. Não é uma
+avaliação de custo-benefício ou recomendação de compra.
 
 ## Detalhes e mapa
 
-Clique em um imóvel ou em **Ver imóvel** para abrir seus dados completos e um
-mapa. O CSV da Caixa não inclui fotos: o popup informa essa limitação e oferece
-um link para o anúncio oficial, onde elas podem ser consultadas.
+Na tabela e nos cartões, os ícones abrem o anúncio oficial da Caixa, buscam o
+endereço no Google Maps ou exibem o popup de detalhes. O popup também possui
+ícones para a Caixa e o Google Maps ao lado do botão de fechar. A pesquisa no
+Google Maps usa o endereço informado pela Caixa e pode ser imprecisa.
+
+Clique em um imóvel ou no ícone de detalhes para abrir seus dados completos e
+um mapa. O CSV da Caixa não inclui fotos; consulte o anúncio oficial. Clique
+fora do popup ou use o botão de fechar para fechá-lo.
 
 A localização é consultada somente ao abrir um imóvel, enviando o endereço
 público do CSV ao serviço [Nominatim do OpenStreetMap](https://nominatim.openstreetmap.org/).
