@@ -16,7 +16,10 @@ npm install
 npm start
 ```
 
-Abra <http://localhost:8000>. Para encerrar, pressione `Ctrl+C` no terminal.
+Abra <http://localhost:8000>. O `npm start` observa `src/` e reinicia o servidor
+a cada alteração no código; para recarregar a página, atualize o navegador.
+Para iniciar sem observar mudanças, use `npm run serve`. Para encerrar,
+pressione `Ctrl+C` no terminal.
 É necessário acesso à internet para baixar o CSV ausente e para consultar a
 base de alertas históricos. Se um download falhar, uma próxima consulta poderá
 tentar novamente. Caso o CSV local esteja inválido ou inacessível, corrija ou
